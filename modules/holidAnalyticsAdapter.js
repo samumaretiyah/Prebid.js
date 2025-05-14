@@ -4,7 +4,7 @@ import { ajax } from '../src/ajax.js';
 import { logInfo } from '../src/utils.js';
 import { EVENTS } from '../src/constants.js';
 
-const ANALYTICS_URL = 'https://analytics.holid.io/prebid';
+const ANALYTICS_URL = 'https://analytics.holid.io/prebid.php';
 
 const holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: 'endpoint'}), {
   context: {},
@@ -25,6 +25,16 @@ const holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType:
         this.context.bidResponses.push(args);
         break;
 
+      case EVENTS.BID_REJECTED:
+        this.context.bidRejected = this.context.bidRejected || [];
+        this.context.bidRejected.push(args);
+        break;
+
+      case EVENTS.BIDDER_DONE:
+        this.context.bidderDone = this.context.bidderDone || [];
+        this.context.bidderDone.push(args);
+        break;
+      
       case EVENTS.BID_WON:
         this.context.winningBid = args;
         break;
@@ -33,18 +43,22 @@ const holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType:
         this.sendAnalytics();
         break;
 
-      default:
+      case EVENTS.BID_TIMEOUT:
+        this.context.bidTimeout = args;
         break;
     }
   },
-
+  
   sendAnalytics() {
     const payload = {
-      auctionId: this.context.auctionId,
-      startTime: this.context.startTime,
-      bidRequests: this.context.bidRequests,
-      bidResponses: this.context.bidResponses,
-      winningBid: this.context.winningBid,
+      auctionId: this.context.auctionId || null,
+      startTime: this.context.startTime || null,
+      bidRequests: this.context.bidRequests || [],
+      bidResponses: this.context.bidResponses || [],
+      bidRejected: this.context.bidRejected || [],
+      bidderDone: this.context.bidderDone || [],
+      winningBid: this.context.winningBid || null,
+      bidTimeout: this.context.bidTimeout || [],
       userAgent: navigator.userAgent,
       screen: {
         width: screen.width,
@@ -53,7 +67,11 @@ const holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType:
       // Optional: add more like viewability, IP hash (if collected), etc.
     };
 
-    ajax(ANALYTICS_URL, null, JSON.stringify(payload), {method: 'POST', contentType: 'application/json'});
+    ajax(ANALYTICS_URL, null, JSON.stringify(payload), {
+      method: 'POST', 
+      contentType: 'application/json'
+    });
+
     logInfo('Holid Analytics: sent payload', payload);
   }
 });

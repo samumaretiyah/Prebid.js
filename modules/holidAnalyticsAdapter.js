@@ -30,7 +30,15 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.BID_REQUESTED:
           logInfo('HOLID_BID_REQUESTED:', args);
           if (this.context[args.auctionId]) {
-            this.context[args.auctionId].bidRequests.push(args);
+            var newargs = {};
+            newargs.bidderCode = args.bidderCode;
+            newargs.auctionId = args.auctionId;
+            newargs.bidderRequestId = args.bidderRequestId;
+            newargs.bids = args.bids;
+            newargs.refererInfo = args.refererInfo;
+            newargs.gdprConsent = args.gdprConsent;
+
+            this.context[args.auctionId].bidRequests.push(newargs);
           }
           break;
 
@@ -51,7 +59,8 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.BIDDER_DONE:
           logInfo('HOLID_BIDDER_DONE:', args);
           if (this.context[args.auctionId]) {
-            this.context[args.auctionId].bidderDone.push(args);
+            var newargs = {"bidderCode":args.bidderCode, "readyToSend":true};
+            this.context[args.auctionId].bidderDone.push(newargs);
           }
           break;
         
@@ -59,12 +68,18 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
           logInfo('HOLID_BID_WON:', args);
           if (this.context[args.auctionId]) {
             this.context[args.auctionId].winningBids.push(args);
+            if (!this.context[args.auctionId].payloadSent) {
+              holidAnalytics.sendAnalyticsEvents(args.auctionId);
+            }
           }
           break;
 
         case EVENTS.AD_RENDER_FAILED:
           if (args?.bid?.auctionId && this.context[args.bid.auctionId]) {
             this.context[args.bid.auctionId].adRenderFailed.push(args);
+            if (!this.context[args.auctionId].payloadSent) {
+              holidAnalytics.sendAnalyticsEvents(args.auctionId);
+            }
           }
           break;
 
@@ -72,7 +87,15 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
           logInfo('HOLID_BID_TIMEOUT:', args);
           (args || []).forEach(timeoutBid => {
             if (timeoutBid.auctionId && this.context[timeoutBid.auctionId]) {
-              this.context[timeoutBid.auctionId].bidTimeout.push(timeoutBid);
+              var newargs = {};
+              newargs.bidder = timeoutBid.bidder;
+              newargs.adUnitCode = timeoutBid.adUnitCode;
+              newargs.adUnitId = timeoutBid.adUnitId;
+              newargs.bidId = timeoutBid.bidId;
+              newargs.auctionId = timeoutBid.auctionId;
+              newargs.timeout = timeoutBid.timeout;
+
+              this.context[timeoutBid.auctionId].bidTimeout.push(newargs);
             }
           });
           break;
@@ -80,8 +103,10 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.AUCTION_END:
           logInfo('HOLID_AUCTION_END:', args);
           if (this.context[args.auctionId]) {
-            // Set a delay, as BID_WON events will come after AUCTION_END events
-            setTimeout(() => holidAnalytics.sendAnalyticsEvents(args.auctionId), 1000);
+            if (!this.context[args.auctionId].payloadSent) {
+              // Set a delay, as BID_WON events will come after AUCTION_END events
+              setTimeout(() => holidAnalytics.sendAnalyticsEvents(args.auctionId), 1500);
+            }
           }
           break;
       }
@@ -99,6 +124,11 @@ holidAnalytics.enableAnalytics = function (config) {
 holidAnalytics.sendAnalyticsEvents = function(auctionId) {
   const auction = this.context[auctionId];
   if (!auction) return;
+  if (this.context[auctionId].payloadSent) {
+    logInfo(`Holid Analytics: payload already sent for auctionId = ${auctionId}`);
+    return; // guard against duplicate sends
+  }
+  this.context[auctionId].payloadSent = true; // prevent double-send
 
   let gdprApplies = auction.bidRequests[0].gdprConsent ? auction.bidRequests[0].gdprConsent.gdprApplies : undefined;
   let gdprConsent = auction.bidRequests[0].gdprConsent ? auction.bidRequests[0].gdprConsent.consentString : undefined;
@@ -118,7 +148,7 @@ holidAnalytics.sendAnalyticsEvents = function(auctionId) {
   });
 
   // Wait until all adUnitCode divs have iframes rendered inside
-  const maxWaitTime = 1000; // in ms
+  const maxWaitTime = 1500; // in ms
   const intervalTime = 100;
   let elapsed = 0;
 

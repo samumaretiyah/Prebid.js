@@ -75,10 +75,11 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
           break;
 
         case EVENTS.AD_RENDER_FAILED:
+          logInfo('HOLID_AD_RENDER_FAILED:', args);
           if (args?.bid?.auctionId && this.context[args.bid.auctionId]) {
             this.context[args.bid.auctionId].adRenderFailed.push(args);
-            if (!this.context[args.auctionId].payloadSent) {
-              holidAnalytics.sendAnalyticsEvents(args.auctionId);
+            if (!this.context[args.bid.auctionId].payloadSent) {
+              holidAnalytics.sendAnalyticsEvents(args.bid.auctionId);
             }
           }
           break;
@@ -138,88 +139,42 @@ holidAnalytics.sendAnalyticsEvents = function(auctionId) {
     return;
   }
 
-  const adUnitCodes = [];
-  auction.bidRequests.forEach(req => {
-    req.bids.forEach(bid => {
-      if (!adUnitCodes.includes(bid.adUnitCode)) {
-        adUnitCodes.push(bid.adUnitCode);
-      }
-    });
-  });
+  const slots = window.googletag?.pubads?.()?.getSlots?.() || [];
 
-  // Wait until all adUnitCode divs have iframes rendered inside
-  const maxWaitTime = 1500; // in ms
-  const intervalTime = 100;
-  let elapsed = 0;
-
-  const waitForDOMReady = () => {
-    const ready = adUnitCodes.every(adUnitCode => {
-      const outerDiv = document.getElementById(adUnitCode);
-      return outerDiv && outerDiv.querySelector("div[id^='google_ads_iframe_']");
-    });
-
-    if (ready || elapsed >= maxWaitTime) {
-      enrichWithPlacementNames(); // extract placement names
-      sendPayload();              // send data
-    } else {
-      elapsed += intervalTime;
-      setTimeout(waitForDOMReady, intervalTime);
-    }
-  };
-
-  const enrichWithPlacementNames = () => {
-    auction.bidRequests.forEach(bidRequest => {
-      bidRequest.bids.forEach(bid => {
-        const adUnitCode = bid.adUnitCode;
-        const outerDiv = document.getElementById(adUnitCode);
-
-        if (outerDiv) {
-          const childDiv = outerDiv.querySelector("div[id^='google_ads_iframe_']");
-          if (childDiv && childDiv.id) {
-            const match = childDiv.id.match(/\/21756427176\/(.+?)_0__container__/);
-            if (match && match[1]) {
-              const placementName = match[1];
-              bid.placementName = placementName;
-              logInfo(`Holid Analytics: Placement Name for ${adUnitCode}:`, placementName);
-            } else {
-              logInfo(`Holid Analytics: No placement name matched for ${adUnitCode}.`);
-            }
-          } else {
-            logInfo(`Holid Analytics: No matching child div found in ${adUnitCode}.`);
-          }
-        } else {
-          logInfo(`Holid Analytics: Outer div not found for ${adUnitCode}.`);
+  auction.bidRequests.forEach(bidRequest => {
+    bidRequest.bids.forEach(bid => {
+      slots.forEach(element => {
+        if(element.getSlotElementId() == bid.adUnitCode) {
+          const placementName = element.getAdUnitPath().split("/").pop();
+          bid.placementName = placementName;
         }
       });
     });
-  }
-
-  const sendPayload = () => {
-    const payload = {
-      auctionId: auction.auctionId,
-      startTime: auction.startTime,
-      bidRequests: auction.bidRequests,
-      bidResponses: auction.bidResponses,
-      bidRejected: auction.bidRejected,
-      bidderDone: auction.bidderDone,
-      bidTimeout: auction.bidTimeout,
-      winningBids: auction.winningBids,
-      adRenderFailed: auction.adRenderFailed,
-      userAgent: navigator.userAgent,
-      screen: {
-        width: screen.width,
-        height: screen.height
-      }
-    }
+  });
   
-    ajax(ANALYTICS_URL + END_POINT, null, JSON.stringify(payload), {
-      method: 'POST'
-    });
-
-    logInfo('Holid Analytics: sent payload', payload);
+  const payload = {
+    auctionId: auction.auctionId,
+    startTime: auction.startTime,
+    bidRequests: auction.bidRequests,
+    bidResponses: auction.bidResponses,
+    bidRejected: auction.bidRejected,
+    bidderDone: auction.bidderDone,
+    bidTimeout: auction.bidTimeout,
+    winningBids: auction.winningBids,
+    adRenderFailed: auction.adRenderFailed,
+    userAgent: navigator.userAgent,
+    screen: {
+      width: screen.width,
+      height: screen.height
+    }
   }
+  
+  ajax(ANALYTICS_URL + END_POINT, null, JSON.stringify(payload), {
+    method: 'POST',
+    contentType: 'application/json'
+  });
 
-  waitForDOMReady(); // start polling
+  logInfo('Holid Analytics: sent payload', payload);
 }
 
 adapterManager.registerAnalyticsAdapter({

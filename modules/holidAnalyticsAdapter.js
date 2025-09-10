@@ -17,6 +17,7 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
           this.context[args.auctionId] = {
             auctionId: args.auctionId,
             startTime: args.timestamp,
+            domain: "",
             bidRequests: [],
             bidResponses: [],
             bidRejected: [],
@@ -31,13 +32,25 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
           logInfo('HOLID_BID_REQUESTED:', args);
           if (this.context[args.auctionId]) {
             var newargs = {};
-            newargs.bidderCode = args.bidderCode;
-            newargs.auctionId = args.auctionId;
+            newargs.bidderCode = args.bidderCode;            
             newargs.bidderRequestId = args.bidderRequestId;
-            newargs.bids = args.bids;
-            newargs.refererInfo = args.refererInfo;
-            newargs.gdprConsent = args.gdprConsent;
-
+            newargs.gdprConsent = null;
+            if(args.gdprConsent) {
+              newargs.gdprConsent = {
+                "consentString" : args.gdprConsent.consentString ? true : false,
+                "gdprApplies" : args.gdprConsent.gdprApplies,
+              }
+            }
+            newargs.bids = [];
+            args.bids.forEach(function(bidRequest) {
+              newargs.bids.push({
+                "bidderCode" : bidRequest.bidderCode,
+                "bidId" : bidRequest.bidId,
+                "adUnitCode" : bidRequest.adUnitCode,
+                "transactionId" : bidRequest.transactionId,
+              });
+            });
+            this.context[args.auctionId].domain ||= args.refererInfo.domain;
             this.context[args.auctionId].bidRequests.push(newargs);
           }
           break;
@@ -45,14 +58,28 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.BID_RESPONSE:
           logInfo('HOLID_BID_RESPONSE:', args);
           if (this.context[args.auctionId]) {
-            this.context[args.auctionId].bidResponses.push(args);
+            var newargs = {};
+            newargs.bidder = args.bidder;
+            newargs.adUnitCode = args.adUnitCode;
+            newargs.requestId = args.requestId;
+            newargs.adId = args.adId;
+            newargs.mediaType = args.mediaType;
+            newargs.ttl = args.ttl;
+            newargs.source = args.source;
+            newargs.timeToRespond = args.timeToRespond;
+            this.context[args.auctionId].bidResponses.push(newargs);
           }
           break;
 
         case EVENTS.BID_REJECTED:
           logInfo('HOLID_BID_REJECTED:', args);
           if (this.context[args.auctionId]) {
-            this.context[args.auctionId].bidRejected.push(args);
+            var newargs = {};
+            newargs.bidder = args.bidder;
+            newargs.adUnitCode = args.adUnitCode;
+            newargs.mediaType = args.mediaType;
+            newargs.rejectionReason = args.rejectionReason;
+            this.context[args.auctionId].bidRejected.push(newargs);
           }
           break;
 
@@ -67,9 +94,18 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.BID_WON:
           logInfo('HOLID_BID_WON:', args);
           if (this.context[args.auctionId]) {
-            this.context[args.auctionId].winningBids.push(args);
+            var newargs = {};
+            newargs.bidder = args.bidder;
+            newargs.adUnitCode = args.adUnitCode;
+            newargs.adId = args.adId;
+            newargs.cpm = args.cpm;
+            newargs.currency = args.currency;
+            newargs.creativeId = args.creativeId;
+            newargs.netRevenue = args.netRevenue;
+            this.context[args.auctionId].winningBids.push(newargs);
+
             if (!this.context[args.auctionId].payloadSent) {
-              holidAnalytics.sendAnalyticsEvents(args.auctionId);
+              holidAnalytics.sendAnalyticsEvents(newargs.auctionId);
             }
           }
           break;
@@ -77,7 +113,13 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
         case EVENTS.AD_RENDER_FAILED:
           logInfo('HOLID_AD_RENDER_FAILED:', args);
           if (args?.bid?.auctionId && this.context[args.bid.auctionId]) {
-            this.context[args.bid.auctionId].adRenderFailed.push(args);
+            var newargs = {};
+            newargs.adRenderFailed = true;
+            newargs.adUnitCode = args.adUnitCode;
+            newargs.reason = args.reason;
+            newargs.message = args.message;
+            this.context[args.bid.auctionId].adRenderFailed.push(newargs);
+
             if (!this.context[args.bid.auctionId].payloadSent) {
               holidAnalytics.sendAnalyticsEvents(args.bid.auctionId);
             }
@@ -92,10 +134,7 @@ let holidAnalytics = Object.assign(adapter({url: ANALYTICS_URL, analyticsType: '
               newargs.bidder = timeoutBid.bidder;
               newargs.adUnitCode = timeoutBid.adUnitCode;
               newargs.adUnitId = timeoutBid.adUnitId;
-              newargs.bidId = timeoutBid.bidId;
-              newargs.auctionId = timeoutBid.auctionId;
               newargs.timeout = timeoutBid.timeout;
-
               this.context[timeoutBid.auctionId].bidTimeout.push(newargs);
             }
           });
@@ -155,6 +194,7 @@ holidAnalytics.sendAnalyticsEvents = function(auctionId) {
   const payload = {
     auctionId: auction.auctionId,
     startTime: auction.startTime,
+    domain: auction.domain,
     bidRequests: auction.bidRequests,
     bidResponses: auction.bidResponses,
     bidRejected: auction.bidRejected,
